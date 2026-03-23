@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: authority-ai-backend
+    runtime: docker
+    plan: starter
+    envVars:
+      - key: ADMIN_KEY
+        sync: false
+      - key: AUTH_USER
+        sync: false
+      - key: AUTH_PASS
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+    disk:
+      name: data
+      mountPath: /data
+      sizeGB: 1
