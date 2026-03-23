@@ -107,6 +107,10 @@ async def process_scan(scan_id: str, scan_data: dict):
 
 @app.post("/api/scan")
 async def start_scan(data: dict, background_tasks: BackgroundTasks):
+    # Normalize field names (frontend may send 'website' instead of 'website_url')
+    if "website" in data and "website_url" not in data:
+        data["website_url"] = data.pop("website")
+
     existing = await get_scan_by_email(data.get("email", ""))
     if existing and existing.get("results"):
         results = json.loads(existing["results"])
