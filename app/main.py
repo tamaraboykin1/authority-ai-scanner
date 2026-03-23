@@ -46,8 +46,10 @@ class BasicAuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         if not AUTH_USER or not AUTH_PASS:
             return await call_next(request)
-        # Allow chatbot and healthz endpoints without auth
-        if request.url.path in ("/healthz",) or request.url.path.startswith("/api/chat"):
+        # Allow public endpoints without auth
+        public_paths = ("/healthz", "/", "/index.html")
+        public_prefixes = ("/api/chat", "/api/scan", "/assets/", "/static/", "/chatbot-widget.js")
+        if request.url.path in public_paths or any(request.url.path.startswith(p) for p in public_prefixes):
             return await call_next(request)
         auth = request.headers.get("Authorization", "")
         if auth.startswith("Basic "):
