@@ -51,6 +51,12 @@ from app.affiliates import (
 )
 from app.report import generate_report_html
 from app.email_sender import send_email, send_lead_notification, is_email_configured
+from app.social_media import (
+    init_social_media_db, generate_social_content, save_social_post,
+    get_social_posts, get_social_post, update_social_post, delete_social_post,
+    publish_post, generate_and_schedule_content, process_scheduled_posts,
+    get_social_stats, CONTENT_THEMES
+)
 
 logger = logging.getLogger(__name__)
 
@@ -145,10 +151,13 @@ async def lifespan(app: FastAPI):
     await init_leads_db()
     await init_fulfillment_db()
     await init_affiliates_db()
-    # Start background follow-up processor
+    await init_social_media_db()
+    # Start background tasks
     follow_up_task = asyncio.create_task(process_pending_follow_ups())
+    social_task = asyncio.create_task(process_scheduled_posts())
     yield
     follow_up_task.cancel()
+    social_task.cancel()
 
 
 app = FastAPI(lifespan=lifespan)
@@ -1012,6 +1021,104 @@ async def admin_convert_referral(referral_id: str, data: dict, admin_key: str = 
         raise HTTPException(status_code=400, detail="Package and monthly_rate are required")
     await convert_referral(referral_id, package, monthly_rate, commission_rate)
     return {"status": "converted"}
+
+
+# ═══════════════════════════════════════════════════════════════
+# SOCIAL MEDIA ENDPOINTS
+# ═══════════════════════════════════════════════════════════════
+
+@app.get("/api/admin/social/stats")
+async def admin_social_stats(admin_key: str = Query(default="")):
+    """Get social media posting stats."""
+    return await get_social_stats()
+
+
+@app.get("/api/admin/social/themes")
+async def admin_social_themes(admin_key: str = Query(default="")):
+    """Get available content themes."""
+    return {"themes": CONTENT_THEMES}
+
+
+@app.post("/api/admin/social/generate")
+async def admin_social_generate(
+    data: dict,
+    admin_key: str = Query(default="")
+):
+    """Generate social media content using AI."""
+    theme = data.get("theme", "")
+    platform = data.get("platform", "facebook")
+    count = min(data.get("count", 1), 10)
+
+    posts = await generate_social_content(theme=theme, platform=platform, count=count)
+    return {"posts": posts}
+
+
+@app.post("/api/admin/social/posts")
+async def admin_create_social_post(
+    data: dict,
+    admin_key: str = Query(default="")
+):
+    """Create/save a social media post."""
+    post_id = await save_social_post(data)
+    return {"post_id": post_id, "status": "saved"}
+
+
+@app.get("/api/admin/social/posts")
+async def admin_list_social_posts(
+    admin_key: str = Query(default=""),
+    status: str = Query(default=""),
+    platform: str = Query(default=""),
+    limit: int = Query(default=50)
+):
+    """List social media posts."""
+    posts = await get_social_posts(status=status, platform=platform, limit=limit)
+    return {"posts": posts, "total": len(posts)}
+
+
+@app.get("/api/admin/social/posts/{post_id}")
+async def admin_get_social_post(post_id: str, admin_key: str = Query(default="")):
+    """Get a single social media post."""
+    post = await get_social_post(post_id)
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    return post
+
+
+@app.put("/api/admin/social/posts/{post_id}")
+async def admin_update_social_post(
+    post_id: str,
+    data: dict,
+    admin_key: str = Query(default="")
+):
+    """Update a social media post."""
+    await update_social_post(post_id, data)
+    return {"status": "updated"}
+
+
+@app.delete("/api/admin/social/posts/{post_id}")
+async def admin_delete_social_post(post_id: str, admin_key: str = Query(default="")):
+    """Delete a social media post."""
+    await delete_social_post(post_id)
+    return {"status": "deleted"}
+
+
+@app.post("/api/admin/social/posts/{post_id}/publish")
+async def admin_publish_social_post(post_id: str, admin_key: str = Query(default="")):
+    """Immediately publish a social media post."""
+    result = await publish_post(post_id)
+    return result
+
+
+@app.post("/api/admin/social/schedule")
+async def admin_schedule_content(
+    data: dict,
+    background_tasks: BackgroundTasks,
+    admin_key: str = Query(default="")
+):
+    """Generate and schedule content for multiple days."""
+    days = min(data.get("days", 7), 30)
+    result = await generate_and_schedule_content(days=days)
+    return result
 
 
 # ═══════════════════════════════════════════════════════════════
