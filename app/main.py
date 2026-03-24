@@ -11,6 +11,8 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import httpx
+
 from dotenv import load_dotenv
 from fastapi import FastAPI, BackgroundTasks, Query, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -96,6 +98,24 @@ class BasicAuthMiddleware(BaseHTTPMiddleware):
         )
 
 
+async def keep_alive_ping():
+    """Self-ping to keep the Render service warm and responsive."""
+    scanner_url = os.environ.get("RENDER_EXTERNAL_URL", os.environ.get("SCANNER_URL", ""))
+    if not scanner_url:
+        logger.info("No RENDER_EXTERNAL_URL or SCANNER_URL set, skipping keep-alive pings")
+        return
+    health_url = f"{scanner_url.rstrip('/')}/healthz"
+    logger.info(f"Keep-alive pinger started, pinging {health_url} every 10 minutes")
+    while True:
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.get(health_url)
+                logger.debug(f"Keep-alive ping: {resp.status_code}")
+        except Exception as e:
+            logger.warning(f"Keep-alive ping failed: {e}")
+        await asyncio.sleep(600)  # Every 10 minutes
+
+
 async def process_pending_follow_ups():
     """Background task: check for pending follow-ups and send them."""
     while True:
@@ -155,9 +175,12 @@ async def lifespan(app: FastAPI):
     # Start background tasks
     follow_up_task = asyncio.create_task(process_pending_follow_ups())
     social_task = asyncio.create_task(process_scheduled_posts())
+    keepalive_task = asyncio.create_task(keep_alive_ping())
+    logger.info("All background tasks started: follow-ups, social media, keep-alive")
     yield
     follow_up_task.cancel()
     social_task.cancel()
+    keepalive_task.cancel()
 
 
 app = FastAPI(lifespan=lifespan)
@@ -176,7 +199,12 @@ if AUTH_USER and AUTH_PASS:
 
 @app.get("/healthz")
 async def healthz():
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "service": "authority-ai-scanner",
+        "timestamp": datetime.utcnow().isoformat(),
+        "uptime": "running"
+    }
 
 
 # ═══════════════════════════════════════════════════════════════
