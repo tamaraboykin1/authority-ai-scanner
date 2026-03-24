@@ -77,7 +77,7 @@ def _generate_referral_code(name: str) -> str:
 # ── Affiliate Signup & Management ──────────────────────────────
 
 async def apply_as_affiliate(data: dict) -> dict:
-    """Submit an affiliate application."""
+    """Submit a sales team application with full application data."""
     affiliate_id = str(uuid.uuid4())
     name = data.get("name", "").strip()
     email = data.get("email", "").strip().lower()
@@ -86,6 +86,22 @@ async def apply_as_affiliate(data: dict) -> dict:
 
     if not name or not email:
         return {"error": "Name and email are required"}
+
+    # Build extended application data as JSON stored in bio field
+    application_info = {
+        "city": data.get("city", "").strip(),
+        "state": data.get("state", "").strip(),
+        "employment_status": data.get("employment_status", "").strip(),
+        "sales_experience": data.get("sales_experience", "").strip(),
+        "industry_experience": data.get("industry_experience", "").strip(),
+        "why_join": data.get("why_join", "").strip(),
+        "lead_generation_plan": data.get("lead_generation_plan", "").strip(),
+        "linkedin": data.get("linkedin", "").strip(),
+        "availability": data.get("availability", "").strip(),
+        "how_heard": data.get("how_heard", "").strip(),
+        "previous_experience": bio,
+    }
+    bio_json = json.dumps(application_info)
 
     # Check if email already registered
     db = await get_db()
@@ -97,7 +113,7 @@ async def apply_as_affiliate(data: dict) -> dict:
             if row["status"] == "pending":
                 return {"error": "Application already submitted and pending review"}
             elif row["status"] == "approved":
-                return {"error": "You are already an approved affiliate", "affiliate_id": row["id"]}
+                return {"error": "You are already an approved team member", "affiliate_id": row["id"]}
             elif row["status"] == "rejected":
                 return {"error": "Your previous application was not approved. Contact us for more info."}
 
@@ -115,14 +131,14 @@ async def apply_as_affiliate(data: dict) -> dict:
         await db.execute(
             """INSERT INTO affiliates (id, name, email, phone, referral_code, status, bio, password_hash)
                VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)""",
-            (affiliate_id, name, email, phone, referral_code, bio, temp_password)
+            (affiliate_id, name, email, phone, referral_code, bio_json, temp_password)
         )
         await db.commit()
         return {
             "affiliate_id": affiliate_id,
             "referral_code": referral_code,
             "status": "pending",
-            "message": "Application submitted! You'll be notified when approved."
+            "message": "Application submitted! We'll review your application and get back to you within 24-48 hours."
         }
     finally:
         await db.close()
