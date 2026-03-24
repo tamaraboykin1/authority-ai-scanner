@@ -131,13 +131,20 @@ async def start_scan(data: dict, background_tasks: BackgroundTasks):
         data["website_url"] = data.pop("website")
 
     existing = await get_scan_by_email(data.get("email", ""))
-    if existing and existing.get("results"):
-        results = json.loads(existing["results"])
-        return {
-            "scan_id": existing["id"],
-            "status": "already_scanned",
-            "results": results
-        }
+    if existing:
+        if existing["status"] == "processing":
+            return {
+                "scan_id": existing["id"],
+                "status": "processing",
+                "message": "Your scan is already in progress. Please wait for results."
+            }
+        if existing.get("results"):
+            results = json.loads(existing["results"])
+            return {
+                "scan_id": existing["id"],
+                "status": "already_scanned",
+                "results": results
+            }
 
     scan_id = str(uuid.uuid4())
     await save_scan(scan_id, data)

@@ -91,7 +91,7 @@ async def get_scan_by_email(email: str):
     db = await get_db()
     try:
         cursor = await db.execute(
-            "SELECT * FROM scans WHERE email = ? AND status = 'complete' ORDER BY created_at DESC LIMIT 1",
+            "SELECT * FROM scans WHERE email = ? AND status IN ('complete', 'processing') ORDER BY created_at DESC LIMIT 1",
             (email,)
         )
         row = await cursor.fetchone()
