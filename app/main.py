@@ -52,6 +52,9 @@ class BasicAuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         if not AUTH_USER or not AUTH_PASS:
             return await call_next(request)
+        # Allow CORS preflight requests through
+        if request.method == "OPTIONS":
+            return await call_next(request)
         # Allow public endpoints without auth
         public_paths = ("/healthz", "/", "/index.html")
         public_prefixes = ("/api/chat", "/api/scan", "/assets/", "/static/", "/chatbot-widget.js", "/report/")
