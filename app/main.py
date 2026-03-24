@@ -1,11 +1,14 @@
+import asyncio
 import base64
 import csv
 import io
 import json
+import logging
 import os
 import secrets
 import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -47,6 +50,9 @@ from app.affiliates import (
     get_affiliate_stats
 )
 from app.report import generate_report_html
+from app.email_sender import send_email, send_lead_notification, is_email_configured
+
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -84,13 +90,65 @@ class BasicAuthMiddleware(BaseHTTPMiddleware):
         )
 
 
+async def process_pending_follow_ups():
+    """Background task: check for pending follow-ups and send them."""
+    while True:
+        try:
+            follow_ups = await get_follow_ups(status="pending")
+            now = datetime.utcnow()
+            sent_count = 0
+            for fu in follow_ups:
+                # Check if it's time to send
+                scheduled_at = fu.get("scheduled_at", "")
+                if scheduled_at:
+                    try:
+                        scheduled_time = datetime.fromisoformat(scheduled_at)
+                        if now < scheduled_time:
+                            continue  # Not yet time
+                    except (ValueError, TypeError):
+                        pass  # If can't parse, send it
+
+                # Get lead email
+                lead = await get_chatbot_lead(fu["lead_id"])
+                if not lead or not lead.get("email"):
+                    # Try scanner lead
+                    scan = await get_scan(fu["lead_id"])
+                    if not scan or not scan.get("email"):
+                        logger.warning(f"No email for follow-up {fu['id']}, skipping")
+                        continue
+                    to_email = scan["email"]
+                else:
+                    to_email = lead["email"]
+
+                # Send the email
+                result = send_email(to_email, fu["subject"], fu["body"])
+                if result["success"]:
+                    await mark_follow_up_sent(fu["id"])
+                    sent_count += 1
+                    logger.info(f"Sent follow-up {fu['id']} to {to_email}")
+                else:
+                    logger.error(f"Failed to send follow-up {fu['id']}: {result['error']}")
+
+            if sent_count > 0:
+                logger.info(f"Processed {sent_count} follow-up emails")
+
+        except Exception as e:
+            logger.error(f"Error in follow-up processor: {e}")
+
+        # Check every 5 minutes
+        await asyncio.sleep(300)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
     await init_leads_db()
     await init_fulfillment_db()
     await init_affiliates_db()
+    # Start background follow-up processor
+    follow_up_task = asyncio.create_task(process_pending_follow_ups())
     yield
+    follow_up_task.cancel()
 
 
 app = FastAPI(lifespan=lifespan)
@@ -120,6 +178,58 @@ async def process_scan(scan_id: str, scan_data: dict):
     try:
         results = await run_scan(scan_data)
         await update_scan_results(scan_id, results)
+
+        # Auto-trigger follow-up sequence for scanner leads
+        try:
+            email = scan_data.get("email", "")
+            business_name = scan_data.get("business_name", "")
+            score = results.get("overall_score", 0)
+            grade = results.get("grade", "N/A")
+            scanner_url = os.environ.get("SCANNER_URL", "")
+
+            # Build score summary from categories
+            categories = results.get("categories", [])
+            summary_lines = []
+            for cat in categories:
+                cat_name = cat.get("name", "")
+                cat_score = cat.get("score", 0)
+                summary_lines.append(f"- {cat_name}: {cat_score}/100")
+            score_summary = "\n".join(summary_lines) if summary_lines else f"Overall score: {score}/100"
+
+            sequence = get_follow_up_sequence("scanner_lead")
+            for step_template in sequence:
+                variables = {
+                    "business_name": business_name,
+                    "email": email,
+                    "score": str(score),
+                    "grade": grade,
+                    "score_summary": score_summary,
+                    "scanner_url": scanner_url,
+                    "name": scan_data.get("business_name", "there"),
+                }
+                subject = render_template(step_template["subject"], variables)
+                body = render_template(step_template["body"], variables)
+                scheduled_at = (datetime.utcnow() + timedelta(hours=step_template["delay_hours"])).isoformat()
+                await create_follow_up(
+                    lead_id=scan_id,
+                    lead_type="scanner",
+                    step=step_template["step"],
+                    subject=subject,
+                    body=body,
+                    scheduled_at=scheduled_at
+                )
+            logger.info(f"Created scanner follow-up sequence for {email}")
+
+            # Send lead notification
+            send_lead_notification({
+                "name": business_name,
+                "business_name": business_name,
+                "email": email,
+                "source": "scanner",
+            })
+        except Exception as follow_up_err:
+            logger.error(f"Error creating scanner follow-ups: {follow_up_err}")
+
     except Exception as e:
         await update_scan_error(scan_id, str(e))
 
@@ -216,13 +326,18 @@ async def chat(data: dict):
             variables = {**lead_data, "scanner_url": os.environ.get("SCANNER_URL", "")}
             subject = render_template(step_template["subject"], variables)
             body = render_template(step_template["body"], variables)
+            scheduled_at = (datetime.utcnow() + timedelta(hours=step_template.get("delay_hours", 0))).isoformat()
             await create_follow_up(
                 lead_id=lead_id,
                 lead_type="chatbot",
                 step=step_template["step"],
                 subject=subject,
-                body=body
+                body=body,
+                scheduled_at=scheduled_at
             )
+
+        # Send lead notification to owner
+        send_lead_notification(lead_data)
 
     return {
         "session_id": session_id,
@@ -353,6 +468,68 @@ async def admin_mark_follow_up_sent(fu_id: str, admin_key: str = Query(default="
     """Mark a follow-up as sent."""
     await mark_follow_up_sent(fu_id)
     return {"status": "marked_sent"}
+
+
+@app.post("/api/admin/follow-ups/process")
+async def admin_process_follow_ups(admin_key: str = Query(default="")):
+    """Manually trigger follow-up email processing."""
+    if not is_email_configured():
+        return {
+            "status": "email_not_configured",
+            "message": "SMTP not configured. Set SMTP_HOST, SMTP_USER, SMTP_PASS environment variables.",
+            "email_configured": False
+        }
+
+    follow_ups = await get_follow_ups(status="pending")
+    now = datetime.utcnow()
+    sent_count = 0
+    errors = []
+    for fu in follow_ups:
+        scheduled_at = fu.get("scheduled_at", "")
+        if scheduled_at:
+            try:
+                scheduled_time = datetime.fromisoformat(scheduled_at)
+                if now < scheduled_time:
+                    continue
+            except (ValueError, TypeError):
+                pass
+
+        lead = await get_chatbot_lead(fu["lead_id"])
+        if not lead or not lead.get("email"):
+            scan = await get_scan(fu["lead_id"])
+            if not scan or not scan.get("email"):
+                continue
+            to_email = scan["email"]
+        else:
+            to_email = lead["email"]
+
+        result = send_email(to_email, fu["subject"], fu["body"])
+        if result["success"]:
+            await mark_follow_up_sent(fu["id"])
+            sent_count += 1
+        else:
+            errors.append({"follow_up_id": fu["id"], "error": result["error"]})
+
+    return {
+        "status": "processed",
+        "sent": sent_count,
+        "errors": errors,
+        "email_configured": True
+    }
+
+
+@app.get("/api/admin/email-status")
+async def admin_email_status(admin_key: str = Query(default="")):
+    """Check email configuration status."""
+    pending = await get_follow_ups(status="pending")
+    sent = await get_follow_ups(status="sent")
+    return {
+        "email_configured": is_email_configured(),
+        "smtp_host": os.environ.get("SMTP_HOST", "not set"),
+        "from_email": os.environ.get("FROM_EMAIL", os.environ.get("SMTP_USER", "not set")),
+        "pending_follow_ups": len(pending),
+        "sent_follow_ups": len(sent),
+    }
 
 
 @app.get("/api/admin/export")
