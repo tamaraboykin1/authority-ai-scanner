@@ -38,6 +38,14 @@ from app.fulfillment import (
     get_all_clients, update_client, get_tasks, create_task, update_task,
     delete_task, log_activity, get_activity, get_fulfillment_stats
 )
+from app.affiliates import (
+    init_affiliates_db, apply_as_affiliate, get_affiliate, get_affiliate_by_code,
+    get_affiliate_by_email, affiliate_login, get_all_affiliates,
+    approve_affiliate, reject_affiliate, update_affiliate,
+    track_referral, convert_referral, get_affiliate_referrals,
+    get_referral_by_scan, record_payout, get_affiliate_payouts,
+    get_affiliate_stats
+)
 from app.report import generate_report_html
 
 load_dotenv()
@@ -57,7 +65,7 @@ class BasicAuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
         # Allow public endpoints without auth
         public_paths = ("/healthz", "/", "/index.html")
-        public_prefixes = ("/api/chat", "/api/scan", "/assets/", "/static/", "/chatbot-widget.js", "/report/")
+        public_prefixes = ("/api/chat", "/api/scan", "/api/affiliate", "/assets/", "/static/", "/chatbot-widget.js", "/report/")
         if request.url.path in public_paths or any(request.url.path.startswith(p) for p in public_prefixes):
             return await call_next(request)
         auth = request.headers.get("Authorization", "")
@@ -81,6 +89,7 @@ async def lifespan(app: FastAPI):
     await init_db()
     await init_leads_db()
     await init_fulfillment_db()
+    await init_affiliates_db()
     yield
 
 
@@ -663,6 +672,162 @@ async def admin_fulfillment_stats(admin_key: str = Query(default="")):
     """Get fulfillment dashboard stats."""
     stats = await get_fulfillment_stats()
     return stats
+
+
+# ═══════════════════════════════════════════════════════════════
+# AFFILIATE ENDPOINTS (public + admin)
+# ═══════════════════════════════════════════════════════════════
+
+@app.post("/api/affiliate/apply")
+async def affiliate_apply(data: dict):
+    """Public endpoint for affiliate applications."""
+    result = await apply_as_affiliate(data)
+    if result.get("error"):
+        return result
+    return result
+
+
+@app.post("/api/affiliate/login")
+async def affiliate_login_endpoint(data: dict):
+    """Affiliate login."""
+    email = data.get("email", "")
+    password = data.get("password", "")
+    if not email or not password:
+        return {"error": "Email and password are required"}
+    result = await affiliate_login(email, password)
+    return result
+
+
+@app.get("/api/affiliate/{affiliate_id}/dashboard")
+async def affiliate_dashboard_endpoint(affiliate_id: str):
+    """Get affiliate dashboard data."""
+    affiliate = await get_affiliate(affiliate_id)
+    if not affiliate or affiliate.get("status") != "approved":
+        return {"error": "Affiliate not found or not approved"}
+    referrals = await get_affiliate_referrals(affiliate_id)
+    payouts = await get_affiliate_payouts(affiliate_id)
+    return {
+        "affiliate": {
+            "id": affiliate["id"],
+            "name": affiliate["name"],
+            "email": affiliate["email"],
+            "referral_code": affiliate["referral_code"],
+            "commission_rate": affiliate["commission_rate"],
+            "total_referrals": affiliate["total_referrals"],
+            "total_conversions": affiliate["total_conversions"],
+            "total_earned": affiliate["total_earned"],
+            "total_paid": affiliate["total_paid"],
+            "balance": round(affiliate["total_earned"] - affiliate["total_paid"], 2),
+        },
+        "referrals": referrals,
+        "payouts": payouts,
+        "referral_link": f"https://authority-ai-scanner-1.onrender.com/?ref={affiliate['referral_code']}"
+    }
+
+
+@app.post("/api/affiliate/track")
+async def affiliate_track(data: dict):
+    """Track a referral when someone uses an affiliate link."""
+    ref_code = data.get("ref", "")
+    if not ref_code:
+        return {"error": "Referral code required"}
+    affiliate = await get_affiliate_by_code(ref_code)
+    if not affiliate:
+        return {"error": "Invalid referral code"}
+    referral_id = await track_referral(
+        affiliate["id"],
+        scan_id=data.get("scan_id", ""),
+        lead_email=data.get("email", ""),
+        lead_business=data.get("business_name", "")
+    )
+    return {"referral_id": referral_id, "affiliate_name": affiliate["name"]}
+
+
+# ── Admin Affiliate Management ────────────────────────────────
+
+@app.get("/api/admin/affiliates")
+async def admin_list_affiliates(
+    admin_key: str = Query(default=""),
+    status: str = Query(default=""),
+    limit: int = Query(default=50)
+):
+    """List all affiliates."""
+    affiliates = await get_all_affiliates(status, limit)
+    return {"affiliates": affiliates, "total": len(affiliates)}
+
+
+@app.get("/api/admin/affiliates/stats")
+async def admin_affiliate_stats_endpoint(admin_key: str = Query(default="")):
+    """Get affiliate program stats."""
+    stats = await get_affiliate_stats()
+    return stats
+
+
+@app.get("/api/admin/affiliates/{affiliate_id}")
+async def admin_get_affiliate(affiliate_id: str, admin_key: str = Query(default="")):
+    """Get a single affiliate's details."""
+    affiliate = await get_affiliate(affiliate_id)
+    if not affiliate:
+        raise HTTPException(status_code=404, detail="Affiliate not found")
+    referrals = await get_affiliate_referrals(affiliate_id)
+    payouts = await get_affiliate_payouts(affiliate_id)
+    return {"affiliate": affiliate, "referrals": referrals, "payouts": payouts}
+
+
+@app.post("/api/admin/affiliates/{affiliate_id}/approve")
+async def admin_approve_affiliate(affiliate_id: str, admin_key: str = Query(default="")):
+    """Approve an affiliate application."""
+    result = await approve_affiliate(affiliate_id)
+    return {"status": "approved", "affiliate": result}
+
+
+@app.post("/api/admin/affiliates/{affiliate_id}/reject")
+async def admin_reject_affiliate(affiliate_id: str, data: dict = {}, admin_key: str = Query(default="")):
+    """Reject an affiliate application."""
+    reason = data.get("reason", "") if isinstance(data, dict) else ""
+    result = await reject_affiliate(affiliate_id, reason)
+    return result
+
+
+@app.put("/api/admin/affiliates/{affiliate_id}")
+async def admin_update_affiliate(affiliate_id: str, data: dict, admin_key: str = Query(default="")):
+    """Update affiliate details."""
+    await update_affiliate(affiliate_id, data)
+    return {"status": "updated"}
+
+
+@app.post("/api/admin/affiliates/{affiliate_id}/payout")
+async def admin_record_payout(affiliate_id: str, data: dict, admin_key: str = Query(default="")):
+    """Record a payout to an affiliate."""
+    amount = data.get("amount", 0)
+    if not amount:
+        raise HTTPException(status_code=400, detail="Amount is required")
+    payout_id = await record_payout(
+        affiliate_id, amount,
+        period=data.get("period", ""),
+        method=data.get("method", ""),
+        notes=data.get("notes", "")
+    )
+    return {"payout_id": payout_id, "status": "recorded"}
+
+
+@app.get("/api/admin/affiliates/{affiliate_id}/referrals")
+async def admin_get_affiliate_referrals(affiliate_id: str, admin_key: str = Query(default="")):
+    """Get all referrals for an affiliate."""
+    referrals = await get_affiliate_referrals(affiliate_id)
+    return {"referrals": referrals, "total": len(referrals)}
+
+
+@app.post("/api/admin/referrals/{referral_id}/convert")
+async def admin_convert_referral(referral_id: str, data: dict, admin_key: str = Query(default="")):
+    """Mark a referral as converted (client signed up)."""
+    package = data.get("package", "")
+    monthly_rate = data.get("monthly_rate", 0)
+    commission_rate = data.get("commission_rate", 0.20)
+    if not package or not monthly_rate:
+        raise HTTPException(status_code=400, detail="Package and monthly_rate are required")
+    await convert_referral(referral_id, package, monthly_rate, commission_rate)
+    return {"status": "converted"}
 
 
 # ═══════════════════════════════════════════════════════════════
