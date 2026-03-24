@@ -33,6 +33,12 @@ from app.follow_ups import (
     OUTREACH_TEMPLATES
 )
 from app.outreach import analyze_website_quality, scan_prospect_websites
+from app.fulfillment import (
+    init_fulfillment_db, create_client, get_client, get_client_by_scan,
+    get_all_clients, update_client, get_tasks, create_task, update_task,
+    delete_task, log_activity, get_activity, get_fulfillment_stats
+)
+from app.report import generate_report_html
 
 load_dotenv()
 
@@ -48,7 +54,7 @@ class BasicAuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
         # Allow public endpoints without auth
         public_paths = ("/healthz", "/", "/index.html")
-        public_prefixes = ("/api/chat", "/api/scan", "/assets/", "/static/", "/chatbot-widget.js")
+        public_prefixes = ("/api/chat", "/api/scan", "/assets/", "/static/", "/chatbot-widget.js", "/report/")
         if request.url.path in public_paths or any(request.url.path.startswith(p) for p in public_prefixes):
             return await call_next(request)
         auth = request.headers.get("Authorization", "")
@@ -71,6 +77,7 @@ class BasicAuthMiddleware(BaseHTTPMiddleware):
 async def lifespan(app: FastAPI):
     await init_db()
     await init_leads_db()
+    await init_fulfillment_db()
     yield
 
 
@@ -500,6 +507,159 @@ async def admin_update_settings(data: dict, admin_key: str = Query(default="")):
         if key in ("chatbot_greeting", "scanner_url", "notification_email"):
             await set_setting(key, value)
     return {"status": "updated"}
+
+
+# ═══════════════════════════════════════════════════════════════
+# CLIENT REPORT ENDPOINT (public - shows problems, NOT solutions)
+# ═══════════════════════════════════════════════════════════════
+
+@app.get("/report/{scan_id}")
+async def client_report(scan_id: str):
+    """Generate client-facing report showing problems but NOT solutions."""
+    scan = await get_scan(scan_id)
+    if not scan or not scan.get("results"):
+        return Response(content="<h1>Report not found</h1>", media_type="text/html", status_code=404)
+    results = json.loads(scan["results"])
+    scan_data = {
+        "business_name": scan.get("business_name", ""),
+        "city": scan.get("city", ""),
+        "state": scan.get("state", ""),
+        "industry": scan.get("industry", ""),
+        "website_url": scan.get("website_url", ""),
+        "email": scan.get("email", ""),
+    }
+    html = generate_report_html(scan_data, results)
+    return Response(content=html, media_type="text/html")
+
+
+# ═══════════════════════════════════════════════════════════════
+# FULFILLMENT ADMIN ENDPOINTS (secret - step-by-step fix process)
+# ═══════════════════════════════════════════════════════════════
+
+@app.post("/api/admin/clients")
+async def admin_create_client(data: dict, admin_key: str = Query(default="")):
+    """Convert a scan lead into a fulfillment client."""
+    scan_id = data.get("scan_id", "")
+    if not scan_id:
+        raise HTTPException(status_code=400, detail="scan_id is required")
+    scan = await get_scan(scan_id)
+    if not scan:
+        raise HTTPException(status_code=404, detail="Scan not found")
+    results = json.loads(scan["results"]) if scan.get("results") else {}
+    client_data = {
+        "business_name": scan.get("business_name", ""),
+        "email": scan.get("email", ""),
+        "phone": scan.get("phone", ""),
+        "website_url": scan.get("website_url", ""),
+        "city": scan.get("city", ""),
+        "state": scan.get("state", ""),
+        "industry": scan.get("industry", ""),
+        "initial_score": results.get("overall_score", 0),
+        "categories": results.get("categories", []),
+        "package": data.get("package", ""),
+        "monthly_rate": data.get("monthly_rate", 0),
+    }
+    client_id = await create_client(scan_id, client_data)
+    return {"client_id": client_id, "status": "created"}
+
+
+@app.get("/api/admin/clients")
+async def admin_list_clients(
+    admin_key: str = Query(default=""),
+    status: str = Query(default=""),
+    limit: int = Query(default=50),
+    offset: int = Query(default=0)
+):
+    """List all fulfillment clients."""
+    clients = await get_all_clients(status, limit, offset)
+    return {"clients": clients, "total": len(clients)}
+
+
+@app.get("/api/admin/clients/{client_id}")
+async def admin_get_client(client_id: str, admin_key: str = Query(default="")):
+    """Get a single client's details."""
+    client = await get_client(client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    return client
+
+
+@app.put("/api/admin/clients/{client_id}")
+async def admin_update_client(client_id: str, data: dict, admin_key: str = Query(default="")):
+    """Update client status, package, notes, etc."""
+    await update_client(client_id, data)
+    return {"status": "updated"}
+
+
+@app.get("/api/admin/clients/{client_id}/tasks")
+async def admin_get_tasks(
+    client_id: str,
+    admin_key: str = Query(default=""),
+    status: str = Query(default="")
+):
+    """Get all tasks for a client."""
+    tasks = await get_tasks(client_id, status)
+    return {"tasks": tasks, "total": len(tasks)}
+
+
+@app.post("/api/admin/clients/{client_id}/tasks")
+async def admin_create_task(client_id: str, data: dict, admin_key: str = Query(default="")):
+    """Create a new task for a client."""
+    task_id = await create_task(client_id, data)
+    return {"task_id": task_id, "status": "created"}
+
+
+@app.put("/api/admin/tasks/{task_id}")
+async def admin_update_task(task_id: str, data: dict, admin_key: str = Query(default="")):
+    """Update a task's status, notes, etc."""
+    await update_task(task_id, data)
+    return {"status": "updated"}
+
+
+@app.delete("/api/admin/tasks/{task_id}")
+async def admin_delete_task(task_id: str, admin_key: str = Query(default="")):
+    """Delete a task."""
+    await delete_task(task_id)
+    return {"status": "deleted"}
+
+
+@app.get("/api/admin/clients/{client_id}/activity")
+async def admin_get_activity(
+    client_id: str,
+    admin_key: str = Query(default=""),
+    limit: int = Query(default=20)
+):
+    """Get activity log for a client."""
+    activities = await get_activity(client_id, limit)
+    return {"activities": activities}
+
+
+@app.post("/api/admin/clients/{client_id}/rescan")
+async def admin_rescan_client(client_id: str, background_tasks: BackgroundTasks, admin_key: str = Query(default="")):
+    """Re-scan a client's website and update their score."""
+    client = await get_client(client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    scan_data = {
+        "business_name": client.get("business_name", ""),
+        "website_url": client.get("website_url", ""),
+        "city": client.get("city", ""),
+        "state": client.get("state", ""),
+        "industry": client.get("industry", ""),
+        "email": client.get("email", ""),
+    }
+    scan_id = str(uuid.uuid4())
+    await save_scan(scan_id, scan_data)
+    background_tasks.add_task(process_scan, scan_id, scan_data)
+    await log_activity(client_id, "rescan_started", f"New scan: {scan_id}")
+    return {"scan_id": scan_id, "status": "processing"}
+
+
+@app.get("/api/admin/fulfillment/stats")
+async def admin_fulfillment_stats(admin_key: str = Query(default="")):
+    """Get fulfillment dashboard stats."""
+    stats = await get_fulfillment_stats()
+    return stats
 
 
 # ═══════════════════════════════════════════════════════════════
