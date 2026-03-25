@@ -79,7 +79,7 @@ class BasicAuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
         # Allow public endpoints without auth
         public_paths = ("/healthz", "/", "/index.html")
-        public_prefixes = ("/api/chat", "/api/scan", "/api/affiliate", "/assets/", "/static/", "/chatbot-widget.js", "/report/")
+        public_prefixes = ("/api/chat", "/api/scan", "/api/affiliate", "/assets/", "/static/", "/chatbot-widget.js", "/contact-name-inject.js", "/report/")
         if request.url.path in public_paths or any(request.url.path.startswith(p) for p in public_prefixes):
             return await call_next(request)
         auth = request.headers.get("Authorization", "")
@@ -413,6 +413,15 @@ async def chatbot_widget():
     if widget_path.exists():
         return FileResponse(str(widget_path), media_type="application/javascript")
     return Response(content="// Widget not found", media_type="application/javascript")
+
+
+@app.get("/contact-name-inject.js")
+async def contact_name_inject():
+    """Serve the contact name field injection script."""
+    script_path = Path(__file__).parent.parent / "static" / "contact-name-inject.js"
+    if script_path.exists():
+        return FileResponse(str(script_path), media_type="application/javascript")
+    return Response(content="// Script not found", media_type="application/javascript")
 
 
 # ═══════════════════════════════════════════════════════════════
