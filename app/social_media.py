@@ -413,12 +413,102 @@ async def generate_and_schedule_content(days: int = 7):
     return {"posts_created": posts_created, "days": days, "platforms": platforms}
 
 
+async def auto_generate_daily_content():
+    """Auto-generate content for the next 24 hours if not enough posts are scheduled."""
+    import random
+
+    now = datetime.utcnow()
+    today_str = now.strftime("%Y-%m-%d")
+
+    # Check how many posts are already scheduled for today
+    all_scheduled = await get_social_posts(status="scheduled", limit=200)
+    today_scheduled = [p for p in all_scheduled if p.get("scheduled_at", "").startswith(today_str)]
+
+    # Also check tomorrow
+    tomorrow = now + timedelta(days=1)
+    tomorrow_str = tomorrow.strftime("%Y-%m-%d")
+    tomorrow_scheduled = [p for p in all_scheduled if p.get("scheduled_at", "").startswith(tomorrow_str)]
+
+    platforms = ["facebook"]
+    if META_IG_USER_ID:
+        platforms.append("instagram")
+
+    posts_created = 0
+
+    # Generate for today if we have fewer than 5 posts scheduled
+    for target_date, target_str, existing in [(now, today_str, today_scheduled), (tomorrow, tomorrow_str, tomorrow_scheduled)]:
+        existing_count = len(existing)
+        if existing_count >= len(DEFAULT_POSTING_TIMES) * len(platforms):
+            logger.debug(f"Already have {existing_count} posts scheduled for {target_str}, skipping generation")
+            continue
+
+        logger.info(f"Generating content for {target_str} ({existing_count} existing, need {len(DEFAULT_POSTING_TIMES) * len(platforms)})")
+
+        for time_str in DEFAULT_POSTING_TIMES:
+            hour, minute = map(int, time_str.split(":"))
+            scheduled_dt = target_date.replace(hour=hour, minute=minute, second=0, microsecond=0)
+
+            # Skip times that have already passed
+            if scheduled_dt <= now:
+                continue
+
+            # Check if we already have a post at this time
+            time_prefix = scheduled_dt.isoformat()[:16]  # Match up to minutes
+            already_exists = any(p.get("scheduled_at", "").startswith(time_prefix) for p in existing)
+            if already_exists:
+                continue
+
+            # Pick a random theme for variety
+            theme_obj = random.choice(CONTENT_THEMES)
+
+            for platform in platforms:
+                try:
+                    content = await generate_social_content(theme=theme_obj["theme"], platform=platform, count=1)
+                    if content and not content[0].get("error"):
+                        post_data = content[0]
+                        post_data["platform"] = platform
+                        post_data["status"] = "scheduled"
+                        post_data["scheduled_at"] = scheduled_dt.isoformat()
+                        await save_social_post(post_data)
+                        posts_created += 1
+                        logger.info(f"Scheduled {platform} post for {scheduled_dt.isoformat()} - theme: {theme_obj['theme']}")
+                except Exception as e:
+                    logger.error(f"Error generating {platform} content for {scheduled_dt}: {e}")
+
+                # Small delay between API calls to avoid rate limits
+                await asyncio.sleep(2)
+
+    if posts_created > 0:
+        logger.info(f"Auto-generated {posts_created} new posts")
+    return posts_created
+
+
 async def process_scheduled_posts():
-    """Background task: publish posts that are scheduled and due."""
+    """Background task: auto-generate content daily and publish posts on schedule."""
+    # Wait 30 seconds on startup for DB init
+    await asyncio.sleep(30)
+    logger.info("Social media scheduler started - will generate and post content automatically")
+
+    last_generation_date = ""
+
     while True:
         try:
-            posts = await get_social_posts(status="scheduled")
             now = datetime.utcnow()
+            today_str = now.strftime("%Y-%m-%d")
+
+            # Auto-generate content once per day (or on startup if none exists)
+            if today_str != last_generation_date:
+                logger.info(f"Running daily content generation for {today_str}")
+                try:
+                    created = await auto_generate_daily_content()
+                    last_generation_date = today_str
+                    if created > 0:
+                        logger.info(f"Daily generation complete: {created} new posts created")
+                except Exception as gen_err:
+                    logger.error(f"Error in daily content generation: {gen_err}")
+
+            # Publish posts that are due
+            posts = await get_social_posts(status="scheduled")
             published = 0
 
             for post in posts:
