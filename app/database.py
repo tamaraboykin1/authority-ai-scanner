@@ -21,6 +21,7 @@ async def init_db():
             CREATE TABLE IF NOT EXISTS scans (
                 id TEXT PRIMARY KEY,
                 business_name TEXT NOT NULL,
+                contact_name TEXT,
                 city TEXT NOT NULL,
                 state TEXT NOT NULL,
                 industry TEXT NOT NULL,
@@ -32,6 +33,12 @@ async def init_db():
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        # Add contact_name column if it doesn't exist (migration for existing DBs)
+        try:
+            await db.execute("ALTER TABLE scans ADD COLUMN contact_name TEXT")
+            await db.commit()
+        except Exception:
+            pass  # Column already exists
         await db.commit()
     finally:
         await db.close()
@@ -41,9 +48,9 @@ async def save_scan(scan_id: str, data: dict):
     db = await get_db()
     try:
         await db.execute(
-            """INSERT INTO scans (id, business_name, city, state, industry, website_url, email, phone, status)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'processing')""",
-            (scan_id, data["business_name"], data["city"], data["state"],
+            """INSERT INTO scans (id, business_name, contact_name, city, state, industry, website_url, email, phone, status)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'processing')""",
+            (scan_id, data["business_name"], data.get("contact_name", ""), data["city"], data["state"],
              data["industry"], data["website_url"], data["email"], data.get("phone", ""))
         )
         await db.commit()

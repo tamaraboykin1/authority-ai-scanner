@@ -444,6 +444,7 @@ async def admin_leads(
         result.append({
             "id": lead["id"],
             "business_name": lead["business_name"],
+            "contact_name": lead.get("contact_name", ""),
             "city": lead["city"],
             "state": lead["state"],
             "industry": lead["industry"],
@@ -574,12 +575,13 @@ async def admin_export(admin_key: str = Query(default="")):
     leads = await get_all_leads(limit=10000, offset=0)
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["Business Name", "City", "State", "Industry", "Website", "Email", "Phone", "Score", "Grade", "Date"])
+    writer.writerow(["Business Name", "Contact Name", "City", "State", "Industry", "Website", "Email", "Phone", "Score", "Grade", "Date"])
 
     for lead in leads:
         results_data = json.loads(lead["results"]) if lead.get("results") else {}
         writer.writerow([
             lead["business_name"],
+            lead.get("contact_name", ""),
             lead["city"],
             lead["state"],
             lead["industry"],
@@ -610,7 +612,7 @@ async def admin_export_all(admin_key: str = Query(default="")):
     for lead in scanner_leads:
         results_data = json.loads(lead["results"]) if lead.get("results") else {}
         writer.writerow([
-            "Scanner", "", lead["business_name"], lead["email"],
+            "Scanner", lead.get("contact_name", ""), lead["business_name"], lead["email"],
             lead.get("phone", ""), lead["city"], lead["state"],
             lead["industry"], results_data.get("overall_score", 0),
             "complete", "", lead["created_at"]
