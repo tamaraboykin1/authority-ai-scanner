@@ -19,11 +19,13 @@
     if (url && typeof url === 'string' && url.includes('/api/scan') && options && options.method === 'POST') {
       try {
         var body = JSON.parse(options.body);
-        body.contact_name = contactNameValue;
+        // Read current value directly from the injected input element
+        var contactInput = document.querySelector('input[placeholder="e.g. John Smith"]');
+        body.contact_name = contactInput ? contactInput.value : contactNameValue;
         options = Object.assign({}, options, { body: JSON.stringify(body) });
       } catch(e) {}
     }
-    return originalFetch.apply(this, arguments);
+    return originalFetch.call(this, url, options);
   };
 
   function injectContactNameField() {
