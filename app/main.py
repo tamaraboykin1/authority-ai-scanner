@@ -758,8 +758,8 @@ async def admin_update_settings(data: dict, admin_key: str = Query(default="")):
 # ═══════════════════════════════════════════════════════════════
 
 @app.get("/report/{scan_id}")
-async def client_report(scan_id: str):
-    """Generate client-facing report showing problems but NOT solutions."""
+async def client_report(scan_id: str, unlock: str = Query(default="")):
+    """Generate client-facing report. Free version shows 3 issues; ?unlock=true shows all."""
     scan = await get_scan(scan_id)
     if not scan or not scan.get("results"):
         return Response(content="<h1>Report not found</h1>", media_type="text/html", status_code=404)
@@ -772,7 +772,9 @@ async def client_report(scan_id: str):
         "website_url": scan.get("website_url", ""),
         "email": scan.get("email", ""),
     }
-    html = generate_report_html(scan_data, results)
+    # If unlock=true, show the full report (this is where payment verification would go)
+    show_full = unlock.lower() == "true"
+    html = generate_report_html(scan_data, results, full_report=show_full, scan_id=scan_id)
     return Response(content=html, media_type="text/html")
 
 

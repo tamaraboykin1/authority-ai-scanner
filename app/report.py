@@ -1,8 +1,13 @@
 """Generate client-facing AI Visibility Report HTML."""
 
 
-def generate_report_html(scan_data: dict, results: dict) -> str:
-    """Generate a polished client-facing report that shows problems but NOT solutions."""
+def generate_report_html(scan_data: dict, results: dict, full_report: bool = False, scan_id: str = "") -> str:
+    """Generate a polished client-facing report.
+
+    If full_report=False (default), shows only first 3 issues across all categories
+    and blurs the rest with a paywall ($99 unlock or book a free call).
+    If full_report=True, shows everything.
+    """
     business_name = results.get("business_name", "Your Business")
     overall_score = results.get("overall_score", 0)
     grade = results.get("grade", "N/A")
@@ -30,6 +35,11 @@ def generate_report_html(scan_data: dict, results: dict) -> str:
     # Count total issues
     total_issues = sum(len(c.get("issues", [])) for c in categories)
     critical_issues = sum(1 for c in categories for i in c.get("issues", []) if i.get("impact") in ("critical", "high"))
+
+    # How many free issues to show total across all categories
+    MAX_FREE_ISSUES = 3
+    free_issues_shown = 0
+    hidden_issues_count = 0
 
     # Generate category cards
     category_html = ""
@@ -64,7 +74,20 @@ def generate_report_html(scan_data: dict, results: dict) -> str:
                 badge_color = "#6b7280"
                 badge_text = "LOW"
 
-            issues_html += f"""
+            # Partial report: show first MAX_FREE_ISSUES, blur the rest
+            if not full_report and free_issues_shown >= MAX_FREE_ISSUES:
+                hidden_issues_count += 1
+                issues_html += """
+            <div style="padding:12px 16px;border-left:3px solid #374151;margin-bottom:8px;background:rgba(255,255,255,0.02);border-radius:0 8px 8px 0;filter:blur(5px);user-select:none;pointer-events:none;">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <span style="color:#e2e8f0;font-size:14px;">Issue details hidden - unlock full report to view</span>
+                    <span style="background:#374151;color:#9ca3af;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;">LOCKED</span>
+                </div>
+            </div>
+            """
+            else:
+                free_issues_shown += 1
+                issues_html += f"""
             <div style="padding:12px 16px;border-left:3px solid {badge_color};margin-bottom:8px;background:rgba(255,255,255,0.03);border-radius:0 8px 8px 0;">
                 <div style="display:flex;justify-content:space-between;align-items:center;">
                     <span style="color:#e2e8f0;font-size:14px;">{issue.get('issue', '')}</span>
@@ -108,6 +131,61 @@ def generate_report_html(scan_data: dict, results: dict) -> str:
         </div>
         """
 
+    # Partial report unlock section (only show if NOT full report and there are hidden issues)
+    unlock_html = ""
+    if not full_report and hidden_issues_count > 0:
+        unlock_html = f"""
+        <div class="animate d4" style="background:linear-gradient(135deg,#1a1033,#0f172a);border-radius:16px;padding:40px;margin:32px 0;border:2px solid #7c3aed;text-align:center;">
+            <div style="font-size:48px;margin-bottom:12px;">&#128274;</div>
+            <h2 style="color:#f8fafc;font-size:24px;margin-bottom:8px;">{hidden_issues_count} More Issues Found</h2>
+            <p style="color:#94a3b8;font-size:15px;margin-bottom:28px;line-height:1.6;">
+                Your free scan revealed <strong style="color:#f97316;">{total_issues} total issues</strong>.
+                You've seen {MAX_FREE_ISSUES} &mdash; unlock the remaining <strong style="color:#7c3aed;">{hidden_issues_count} issues</strong> to get the complete picture.
+            </p>
+            <div style="display:flex;flex-direction:column;gap:16px;max-width:400px;margin:0 auto;">
+                <a href="https://authorityaisystems.com/#pricing"
+                   style="display:block;background:linear-gradient(135deg,#ff6b35,#e85d2a);color:#fff;font-weight:700;padding:16px 32px;border-radius:50px;font-size:16px;text-decoration:none;box-shadow:0 4px 15px rgba(255,107,53,0.4);text-align:center;">
+                    &#128197; Book a FREE Strategy Call
+                </a>
+                <p style="color:#94a3b8;font-size:13px;margin:0;">We'll review your full report together &mdash; no obligation</p>
+                <div style="display:flex;align-items:center;gap:12px;margin:8px 0;">
+                    <div style="flex:1;height:1px;background:#374151;"></div>
+                    <span style="color:#64748b;font-size:13px;">OR</span>
+                    <div style="flex:1;height:1px;background:#374151;"></div>
+                </div>
+                <a href="/report/{scan_id}?unlock=true"
+                   style="display:block;background:#7c3aed;color:#fff;font-weight:700;padding:16px 32px;border-radius:50px;font-size:16px;text-decoration:none;box-shadow:0 4px 15px rgba(124,58,237,0.4);text-align:center;">
+                    &#128275; Unlock Full Report &mdash; $99
+                </a>
+                <p style="color:#94a3b8;font-size:13px;margin:0;">Instant access to all {total_issues} issues &mdash; skip the call</p>
+            </div>
+        </div>
+        """
+
+    # Back to Home button
+    back_home_html = """
+        <div style="text-align:center;margin-bottom:24px;">
+            <a href="https://authorityaisystems.com"
+               style="display:inline-flex;align-items:center;gap:8px;color:#94a3b8;font-size:14px;text-decoration:none;padding:8px 16px;border:1px solid #374151;border-radius:8px;"
+               onmouseover="this.style.color='#ff6b35';this.style.borderColor='#ff6b35';"
+               onmouseout="this.style.color='#94a3b8';this.style.borderColor='#374151';">
+                &#8592; Back to Authority AI Systems
+            </a>
+        </div>
+    """
+
+    # Badge for report type
+    if not full_report:
+        badge_html = '<div style="margin-top:12px;"><span style="background:#7c3aed;color:#fff;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;">FREE PREVIEW</span></div>'
+    else:
+        badge_html = '<div style="margin-top:12px;"><span style="background:#22c55e;color:#fff;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;">FULL REPORT</span></div>'
+
+    # Section heading
+    if full_report:
+        analysis_heading = "Detailed Analysis"
+    else:
+        analysis_heading = f"Issue Preview ({MAX_FREE_ISSUES} of {total_issues} shown)"
+
     html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -140,6 +218,9 @@ def generate_report_html(scan_data: dict, results: dict) -> str:
 </head>
 <body>
     <div class="container">
+        <!-- Back to Home -->
+        {back_home_html}
+
         <!-- Header -->
         <div class="animate d1" style="text-align:center;padding:32px 0;border-bottom:1px solid #1f2937;margin-bottom:32px;">
             <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:8px;">
@@ -151,6 +232,7 @@ def generate_report_html(scan_data: dict, results: dict) -> str:
             <h1 style="font-size:28px;color:#f8fafc;margin-bottom:4px;">AI Visibility Report</h1>
             <p style="color:#94a3b8;">Prepared for <strong style="color:#f8fafc;">{business_name}</strong></p>
             {f'<p style="color:#64748b;font-size:13px;margin-top:4px;">{website_url}</p>' if website_url else ''}
+            {badge_html}
         </div>
 
         <!-- Score Circle -->
@@ -198,9 +280,12 @@ def generate_report_html(scan_data: dict, results: dict) -> str:
 
         <!-- Category Breakdown -->
         <div class="animate d4">
-            <h2 style="font-size:22px;color:#f8fafc;margin-bottom:20px;">Detailed Analysis</h2>
+            <h2 style="font-size:22px;color:#f8fafc;margin-bottom:20px;">{analysis_heading}</h2>
             {category_html}
         </div>
+
+        <!-- Unlock section (partial report only) -->
+        {unlock_html}
 
         <!-- CTA Section -->
         <div class="animate d5" style="background:linear-gradient(135deg,#ff6b35,#e85d2a);border-radius:16px;padding:40px;text-align:center;margin:40px 0;">
@@ -216,6 +301,9 @@ def generate_report_html(scan_data: dict, results: dict) -> str:
                 Or call us: <a href="tel:" style="color:#fff;">Schedule a Free Consultation</a>
             </p>
         </div>
+
+        <!-- Back to Home (bottom) -->
+        {back_home_html}
 
         <!-- Footer -->
         <div style="text-align:center;padding:24px 0;border-top:1px solid #1f2937;color:#64748b;font-size:13px;">
