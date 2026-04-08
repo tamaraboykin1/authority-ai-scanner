@@ -11,6 +11,30 @@
   <body>
     <div id="root"></div>
     <script src="/contact-name-inject.js"></script>
+    <script>
+      // Add Back to Home button at top of scanner page
+      (function() {
+        function addBackButton() {
+          if (document.getElementById('back-home-btn')) return;
+          var header = document.querySelector('header') || document.querySelector('nav');
+          var target = header || document.getElementById('root');
+          if (!target) return;
+          var btn = document.createElement('a');
+          btn.id = 'back-home-btn';
+          btn.href = 'https://authorityaisystems.com';
+          btn.textContent = '\u2190 Back to Home';
+          btn.style.cssText = 'display:inline-block;position:fixed;top:12px;left:16px;z-index:9999;background:#2563eb;color:#fff;padding:8px 18px;border-radius:8px;font-size:14px;font-weight:600;text-decoration:none;box-shadow:0 2px 8px rgba(0,0,0,0.2);transition:background 0.2s;';
+          btn.onmouseover = function() { btn.style.background = '#1d4ed8'; };
+          btn.onmouseout = function() { btn.style.background = '#2563eb'; };
+          document.body.appendChild(btn);
+        }
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', addBackButton);
+        } else {
+          addBackButton();
+        }
+      })();
+    </script>
     <script>window.AUTHORITY_CHAT_API = window.location.origin;</script>
     <script src="/chatbot-widget.js" defer></script>
   </body>
