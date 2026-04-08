@@ -77,10 +77,9 @@ class BasicAuthMiddleware(BaseHTTPMiddleware):
         # Allow CORS preflight requests through
         if request.method == "OPTIONS":
             return await call_next(request)
-        # Allow public endpoints without auth
-        public_paths = ("/healthz", "/", "/index.html")
-        public_prefixes = ("/api/chat", "/api/scan", "/api/affiliate", "/assets/", "/static/", "/chatbot-widget.js", "/contact-name-inject.js", "/report/")
-        if request.url.path in public_paths or any(request.url.path.startswith(p) for p in public_prefixes):
+        # Only require auth for admin endpoints — everything else is public
+        protected_prefixes = ("/api/admin/", "/admin")
+        if not any(request.url.path.startswith(p) for p in protected_prefixes):
             return await call_next(request)
         auth = request.headers.get("Authorization", "")
         if auth.startswith("Basic "):
@@ -93,7 +92,7 @@ class BasicAuthMiddleware(BaseHTTPMiddleware):
                 pass
         return Response(
             status_code=401,
-            headers={"WWW-Authenticate": 'Basic realm="Scanner"'},
+            headers={"WWW-Authenticate": 'Basic realm="Scanner Admin"'},
             content="Unauthorized"
         )
 
