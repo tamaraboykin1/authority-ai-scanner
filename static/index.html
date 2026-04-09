@@ -12,26 +12,53 @@
     <div id="root"></div>
     <script src="/contact-name-inject.js"></script>
     <script>
-      // Add Back to Home button at top of scanner page
+      // Add Back to Home button - visible on all devices including mobile
       (function() {
         function addBackButton() {
           if (document.getElementById('back-home-btn')) return;
-          var header = document.querySelector('header') || document.querySelector('nav');
-          var target = header || document.getElementById('root');
-          if (!target) return;
           var btn = document.createElement('a');
           btn.id = 'back-home-btn';
           btn.href = 'https://authorityaisystems.com';
-          btn.textContent = '\u2190 Back to Home';
-          btn.style.cssText = 'display:inline-block;position:fixed;top:12px;left:16px;z-index:9999;background:#2563eb;color:#fff;padding:8px 18px;border-radius:8px;font-size:14px;font-weight:600;text-decoration:none;box-shadow:0 2px 8px rgba(0,0,0,0.2);transition:background 0.2s;';
-          btn.onmouseover = function() { btn.style.background = '#1d4ed8'; };
-          btn.onmouseout = function() { btn.style.background = '#2563eb'; };
-          document.body.appendChild(btn);
+          btn.innerHTML = '&larr; Back to Home';
+          btn.style.cssText = 'display:block;position:fixed;top:0;left:0;right:0;z-index:99999;background:#2563eb;color:#fff;padding:10px 18px;font-size:14px;font-weight:600;text-decoration:none;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,0.3);';
+          document.body.style.paddingTop = '40px';
+          document.body.insertBefore(btn, document.body.firstChild);
         }
         if (document.readyState === 'loading') {
           document.addEventListener('DOMContentLoaded', addBackButton);
         } else {
           addBackButton();
+        }
+      })();
+
+      // Fix scan results CTA buttons to use email instead of website redirect
+      (function() {
+        function fixButtons() {
+          var allLinks = document.querySelectorAll('a');
+          allLinks.forEach(function(link) {
+            var text = link.textContent.trim().toLowerCase();
+            // Fix "Contact Us" button - send email
+            if (text === 'contact us') {
+              link.href = 'mailto:info@authorityaisystems.com?subject=Authority%20AI%20-%20I%20Want%20To%20Get%20Started';
+              link.removeAttribute('target');
+            }
+            // Fix "Fix My AI Visibility Now" / "Get My AI Visibility Fixed" button - send email
+            if (text.indexOf('fix') !== -1 && text.indexOf('visibility') !== -1) {
+              link.href = 'mailto:info@authorityaisystems.com?subject=Authority%20AI%20-%20Fix%20My%20AI%20Visibility';
+              link.removeAttribute('target');
+            }
+          });
+        }
+        // Run on page load and watch for dynamic content changes
+        var observer = new MutationObserver(function() { fixButtons(); });
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', function() {
+            fixButtons();
+            observer.observe(document.body, { childList: true, subtree: true });
+          });
+        } else {
+          fixButtons();
+          observer.observe(document.body, { childList: true, subtree: true });
         }
       })();
     </script>

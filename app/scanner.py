@@ -37,21 +37,44 @@ def grade_from_score(score: int) -> str:
 
 
 async def fetch_page(url: str) -> dict:
-    """Fetch a webpage and return its HTML content and metadata."""
-    try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=15.0, verify=False) as client:
-            response = await client.get(url, headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            })
-            return {
-                "status_code": response.status_code,
-                "html": response.text,
-                "url": str(response.url),
-                "headers": dict(response.headers),
-                "success": True
-            }
-    except Exception as e:
-        return {"success": False, "error": str(e), "html": "", "headers": {}, "status_code": 0, "url": url}
+    """Fetch a webpage and return its HTML content and metadata.
+    Tries multiple URL variations to maximize success rate."""
+    # Build list of URL variations to try
+    urls_to_try = [url]
+    parsed = urlparse(url)
+    host = parsed.hostname or ""
+    # If starts with www, also try without; if no www, also try with www
+    if host.startswith("www."):
+        alt = url.replace("://www.", "://", 1)
+        urls_to_try.append(alt)
+    else:
+        alt = url.replace("://", "://www.", 1)
+        urls_to_try.append(alt)
+    # Also try http if https fails
+    for u in list(urls_to_try):
+        if u.startswith("https://"):
+            urls_to_try.append(u.replace("https://", "http://", 1))
+
+    last_error = "Unknown error"
+    for try_url in urls_to_try:
+        try:
+            async with httpx.AsyncClient(follow_redirects=True, timeout=20.0, verify=False) as client:
+                response = await client.get(try_url, headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                })
+                if response.status_code < 400:
+                    return {
+                        "status_code": response.status_code,
+                        "html": response.text,
+                        "url": str(response.url),
+                        "headers": dict(response.headers),
+                        "success": True
+                    }
+                last_error = f"HTTP {response.status_code}"
+        except Exception as e:
+            last_error = str(e)
+            continue
+    return {"success": False, "error": last_error, "html": "", "headers": {}, "status_code": 0, "url": url}
 
 
 def analyze_seo(html: str, url: str) -> dict:
@@ -343,21 +366,72 @@ async def run_scan(scan_data: dict) -> dict:
     if not page_data["success"]:
         # Still run AI check even if website fetch fails
         ai_result = await check_ai_recommendation(business_name, city, state, industry)
+        # Generate comprehensive issues across all categories when site is unreachable
+        # This ensures the report always shows 10+ issues so the unlock section appears
+        categories = [
+            {
+                "category": "Website Accessibility",
+                "score": 0,
+                "issues": [
+                    {"issue": f"Could not access website: {page_data.get('error', 'Unknown error')}", "impact": "critical", "recommendation": "Make sure your website is accessible and loads properly"},
+                    {"issue": "Website may be down or blocking automated checks", "impact": "high", "recommendation": "Ensure your website loads for all visitors including search engines and AI crawlers"},
+                ],
+                "recommendations_count": 2
+            },
+            {
+                "category": "Website SEO",
+                "score": 0,
+                "issues": [
+                    {"issue": "Could not verify page title", "impact": "high", "recommendation": "Add a descriptive <title> tag that includes your business name and location"},
+                    {"issue": "Could not verify meta description", "impact": "high", "recommendation": "Add a meta description that summarizes your business, services, and location"},
+                    {"issue": "Could not verify H1 heading", "impact": "high", "recommendation": "Add a clear H1 heading with your business name and primary service"},
+                    {"issue": "Could not verify structured data (Schema.org)", "impact": "high", "recommendation": "Add LocalBusiness schema markup so AI can understand your business details"},
+                ],
+                "recommendations_count": 4
+            },
+            {
+                "category": "Content Quality",
+                "score": 0,
+                "issues": [
+                    {"issue": f"Could not verify '{business_name}' appears in content", "impact": "high", "recommendation": f"Make sure '{business_name}' appears prominently in your page content"},
+                    {"issue": f"Could not verify '{city}' is mentioned in content", "impact": "high", "recommendation": f"Add '{city}' to your content so AI knows where you operate"},
+                    {"issue": f"Could not verify '{industry}' is mentioned in content", "impact": "medium", "recommendation": f"Include '{industry}' naturally throughout your content"},
+                    {"issue": "Could not verify contact information on page", "impact": "medium", "recommendation": "Add your phone number and email visibly — AI uses this to verify you're a real business"},
+                ],
+                "recommendations_count": 4
+            },
+            {
+                "category": "Technical Health",
+                "score": 0,
+                "issues": [
+                    {"issue": "Could not verify mobile viewport", "impact": "high", "recommendation": "Add <meta name='viewport' content='width=device-width, initial-scale=1'>"},
+                    {"issue": "Could not verify Open Graph tags", "impact": "medium", "recommendation": "Add og:title and og:description meta tags for better social/AI sharing"},
+                ],
+                "recommendations_count": 2
+            },
+            {
+                "category": "Local Presence",
+                "score": 0,
+                "issues": [
+                    {"issue": "Could not verify street address on page", "impact": "high", "recommendation": "Add your full business address — AI needs this to recommend you for local searches"},
+                    {"issue": "Could not verify Google Maps/Business Profile link", "impact": "medium", "recommendation": "Link to your Google Business Profile — this is a major trust signal for AI"},
+                    {"issue": "Could not verify social media links", "impact": "medium", "recommendation": "Add links to your social media profiles — AI cross-references these for credibility"},
+                    {"issue": "Could not verify reviews or testimonials", "impact": "high", "recommendation": "Add customer reviews/testimonials — AI heavily weights social proof"},
+                ],
+                "recommendations_count": 4
+            },
+        ]
+        total_recommendations = sum(c["recommendations_count"] for c in categories)
         return {
             "business_name": business_name,
             "city": city,
             "state": state,
             "industry": industry,
             "website_url": website_url,
-            "overall_score": 15,
+            "overall_score": 12,
             "grade": "F",
-            "total_recommendations": 1,
-            "categories": [{
-                "category": "Website Accessibility",
-                "score": 0,
-                "issues": [{"issue": f"Could not access website: {page_data.get('error', 'Unknown error')}", "impact": "critical", "recommendation": "Make sure your website is accessible and loads properly"}],
-                "recommendations_count": 1
-            }],
+            "total_recommendations": total_recommendations,
+            "categories": categories,
             "ai_recommendation": ai_result
         }
 

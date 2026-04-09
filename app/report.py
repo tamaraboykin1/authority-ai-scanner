@@ -145,9 +145,9 @@ def generate_report_html(scan_data: dict, results: dict, full_report: bool = Fal
             <div style="display:flex;flex-direction:column;gap:16px;max-width:400px;margin:0 auto;">
                 <a href="mailto:info@authorityaisystems.com?subject=Schedule%20a%20Call%20-%20Review%20My%20AI%20Visibility%20Report&body=Hi%2C%20I%20just%20completed%20my%20free%20AI%20visibility%20scan%20and%20I%27d%20like%20to%20schedule%20a%20call%20to%20go%20over%20my%20full%20results.%0A%0ABusiness%3A%20{business_name}%0A%0AThank%20you!"
                    style="display:block;background:linear-gradient(135deg,#ff6b35,#e85d2a);color:#fff;font-weight:700;padding:16px 32px;border-radius:50px;font-size:16px;text-decoration:none;box-shadow:0 4px 15px rgba(255,107,53,0.4);text-align:center;">
-                    &#128197; Schedule a Call to Review Results
+                    &#128197; Schedule a Free Strategy Call
                 </a>
-                <p style="color:#94a3b8;font-size:13px;margin:0;">We'll go over your full report together &mdash; no obligation</p>
+                <p style="color:#94a3b8;font-size:13px;margin:0;">We'll walk through your complete report together &mdash; no cost, no obligation</p>
                 <div style="display:flex;align-items:center;gap:12px;margin:8px 0;">
                     <div style="flex:1;height:1px;background:#374151;"></div>
                     <span style="color:#64748b;font-size:13px;">OR</span>
@@ -157,7 +157,7 @@ def generate_report_html(scan_data: dict, results: dict, full_report: bool = Fal
                    style="display:block;background:#7c3aed;color:#fff;font-weight:700;padding:16px 32px;border-radius:50px;font-size:16px;text-decoration:none;box-shadow:0 4px 15px rgba(124,58,237,0.4);text-align:center;">
                     &#128275; Unlock Full Report &mdash; $99
                 </a>
-                <p style="color:#94a3b8;font-size:13px;margin:0;">Instant access to all {total_issues} issues without a call</p>
+                <p style="color:#94a3b8;font-size:13px;margin:0;">Get instant access to all {total_issues} issues &mdash; no call required</p>
             </div>
         </div>
         """
@@ -294,11 +294,11 @@ def generate_report_html(scan_data: dict, results: dict, full_report: bool = Fal
                 Don't let your competitors steal your customers.<br>
                 Our team can optimize your AI visibility and get you recommended by ChatGPT, Siri, and Google AI.
             </p>
-            <a href="https://authorityaisystems.com/#pricing" style="display:inline-block;background:#fff;color:#ff6b35;font-weight:700;padding:16px 40px;border-radius:50px;font-size:18px;text-decoration:none;box-shadow:0 4px 15px rgba(0,0,0,0.3);">
-                Choose Your Plan
+            <a href="mailto:info@authorityaisystems.com?subject=Authority%20AI%20-%20I%20Want%20To%20Get%20Started&body=Hi%2C%20I%27d%20like%20to%20learn%20more%20about%20getting%20my%20AI%20visibility%20fixed.%0A%0ABusiness%3A%20{business_name}%0A%0AThank%20you!" style="display:inline-block;background:#fff;color:#ff6b35;font-weight:700;padding:16px 40px;border-radius:50px;font-size:18px;text-decoration:none;box-shadow:0 4px 15px rgba(0,0,0,0.3);">
+                Get Started Today
             </a>
             <p style="color:rgba(255,255,255,0.7);font-size:13px;margin-top:16px;">
-                Or call us: <a href="tel:" style="color:#fff;">Schedule a Free Consultation</a>
+                Or email us: <a href="mailto:info@authorityaisystems.com" style="color:#fff;">info@authorityaisystems.com</a>
             </p>
         </div>
 
