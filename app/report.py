@@ -143,11 +143,11 @@ def generate_report_html(scan_data: dict, results: dict, full_report: bool = Fal
                 You've seen {MAX_FREE_ISSUES} &mdash; unlock the remaining <strong style="color:#7c3aed;">{hidden_issues_count} issues</strong> to get the complete picture.
             </p>
             <div style="display:flex;flex-direction:column;gap:16px;max-width:400px;margin:0 auto;">
-                <a href="https://authorityaisystems.com/#pricing"
+                <a href="mailto:info@authorityaisystems.com?subject=Schedule%20a%20Call%20-%20Review%20My%20AI%20Visibility%20Report&body=Hi%2C%20I%20just%20completed%20my%20free%20AI%20visibility%20scan%20and%20I%27d%20like%20to%20schedule%20a%20call%20to%20go%20over%20my%20full%20results.%0A%0ABusiness%3A%20{business_name}%0A%0AThank%20you!"
                    style="display:block;background:linear-gradient(135deg,#ff6b35,#e85d2a);color:#fff;font-weight:700;padding:16px 32px;border-radius:50px;font-size:16px;text-decoration:none;box-shadow:0 4px 15px rgba(255,107,53,0.4);text-align:center;">
-                    &#128197; Book a FREE Strategy Call
+                    &#128197; Schedule a Call to Review Results
                 </a>
-                <p style="color:#94a3b8;font-size:13px;margin:0;">We'll review your full report together &mdash; no obligation</p>
+                <p style="color:#94a3b8;font-size:13px;margin:0;">We'll go over your full report together &mdash; no obligation</p>
                 <div style="display:flex;align-items:center;gap:12px;margin:8px 0;">
                     <div style="flex:1;height:1px;background:#374151;"></div>
                     <span style="color:#64748b;font-size:13px;">OR</span>
@@ -157,7 +157,7 @@ def generate_report_html(scan_data: dict, results: dict, full_report: bool = Fal
                    style="display:block;background:#7c3aed;color:#fff;font-weight:700;padding:16px 32px;border-radius:50px;font-size:16px;text-decoration:none;box-shadow:0 4px 15px rgba(124,58,237,0.4);text-align:center;">
                     &#128275; Unlock Full Report &mdash; $99
                 </a>
-                <p style="color:#94a3b8;font-size:13px;margin:0;">Instant access to all {total_issues} issues &mdash; skip the call</p>
+                <p style="color:#94a3b8;font-size:13px;margin:0;">Instant access to all {total_issues} issues without a call</p>
             </div>
         </div>
         """
